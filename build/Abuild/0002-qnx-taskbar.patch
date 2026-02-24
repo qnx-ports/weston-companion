@@ -1,0 +1,151 @@
+--- weston-62583e37ec88cac57c9f70f285c9400b4c354258.orig/clients/meson.build
++++ weston-62583e37ec88cac57c9f70f285c9400b4c354258/clients/meson.build
+@@ -379,21 +379,23 @@
+ 	endforeach
+ endif
+ 
+-if get_option('shell-desktop')
+-	exe_keyboard = executable(
+-		'weston-keyboard',
+-		'keyboard.c',
+-		text_input_unstable_v1_client_protocol_h,
+-		text_input_unstable_v1_protocol_c,
+-		input_method_unstable_v1_client_protocol_h,
+-		input_method_unstable_v1_protocol_c,
+-		include_directories: common_inc,
+-		dependencies: dep_toytoolkit,
+-		install_dir: get_option('libexecdir'),
+-		install: true
+-	)
+-	env_modmap += 'weston-keyboard=@0@;'.format(exe_keyboard.full_path())
++if get_option('shell-desktop') or get_option('shell-qnx-desktop')
++        exe_keyboard = executable(
++                'weston-keyboard',
++                'keyboard.c',
++                text_input_unstable_v1_client_protocol_h,
++                text_input_unstable_v1_protocol_c,
++                input_method_unstable_v1_client_protocol_h,
++                input_method_unstable_v1_protocol_c,
++                include_directories: common_inc,
++                dependencies: dep_toytoolkit,
++                install_dir: get_option('libexecdir'),
++                install: true
++        )
++        env_modmap += 'weston-keyboard=@0@;'.format(exe_keyboard.full_path())
++endif
+ 
++if get_option('shell-desktop')
+ 	exe_shell_desktop = executable(
+ 		'weston-desktop-shell',
+ 		'desktop-shell.c',
+@@ -409,7 +411,25 @@
+ 	env_modmap += 'weston-desktop-shell=@0@;'.format(exe_shell_desktop.full_path())
+ endif
+ 
+-if get_option('shell-desktop') or get_option('shell-fullscreen') or get_option('shell-kiosk') or get_option('shell-ivi')
++if get_option('shell-qnx-desktop')
++        exe_shell_qnx_desktop = executable(
++                'weston-qnx-desktop-shell',
++                'qnx-desktop-shell.c',
++                weston_desktop_shell_client_protocol_h,
++                weston_desktop_shell_protocol_c,
++                qnx_weston_desktop_shell_client_protocol_h,
++                qnx_weston_desktop_shell_protocol_c,
++                tablet_unstable_v2_client_protocol_h,
++                tablet_unstable_v2_protocol_c,
++                include_directories: common_inc,
++                dependencies: dep_toytoolkit,
++                install_dir: get_option('libexecdir'),
++                install: true
++        )
++        env_modmap += 'weston-qnx-desktop-shell=@0@;'.format(exe_shell_desktop.full_path())
++endif
++
++if get_option('shell-desktop') or get_option('shell-qnx-desktop') or get_option('shell-fullscreen') or get_option('shell-kiosk') or get_option('shell-ivi')
+ 	exe_shooter = executable(
+ 		'weston-screenshooter',
+ 		'screenshot.c',
+--- weston-62583e37ec88cac57c9f70f285c9400b4c354258.orig/desktop-shell/input-panel.c
++++ weston-62583e37ec88cac57c9f70f285c9400b4c354258/desktop-shell/input-panel.c
+@@ -30,11 +30,7 @@
+ #include <stdio.h>
+ #include <string.h>
+ 
+-#if defined(__QNX__)
+-#include "qnx-shell.h"
+-#else
+ #include "shell.h"
+-#endif 
+ #include "input-method-unstable-v1-server-protocol.h"
+ #include "shared/helpers.h"
+ 
+--- weston-62583e37ec88cac57c9f70f285c9400b4c354258.orig/meson.build
++++ weston-62583e37ec88cac57c9f70f285c9400b4c354258/meson.build
+@@ -187,6 +187,7 @@
+ subdir('xwayland')
+ subdir('frontend')
+ subdir('desktop-shell')
++subdir('qnx-desktop-shell')
+ subdir('fullscreen-shell')
+ subdir('ivi-shell')
+ subdir('kiosk-shell')
+--- weston-62583e37ec88cac57c9f70f285c9400b4c354258.orig/meson_options.txt
++++ weston-62583e37ec88cac57c9f70f285c9400b4c354258/meson_options.txt
+@@ -118,6 +118,12 @@
+ 	description: 'Weston shell UI: traditional desktop'
+ )
+ option(
++        'shell-qnx-desktop',
++        type: 'boolean',
++        value: true,
++        description: 'Weston shell UI: traditional desktop with qnx extensions'
++)
++option(
+ 	'shell-fullscreen',
+ 	type: 'boolean',
+ 	value: true,
+--- weston-62583e37ec88cac57c9f70f285c9400b4c354258.orig/protocol/meson.build
++++ weston-62583e37ec88cac57c9f70f285c9400b4c354258/protocol/meson.build
+@@ -36,6 +36,7 @@
+ 	[ 'viewporter', 'stable' ],
+ 	[ 'weston-debug', 'internal' ],
+ 	[ 'weston-desktop-shell', 'internal' ],
++        [ 'qnx-weston-desktop-shell' ,'internal' ],
+ 	[ 'weston-output-capture', 'internal' ],
+ 	[ 'weston-content-protection', 'internal' ],
+ 	[ 'weston-test', 'internal' ],
+--- /dev/null
++++ weston-62583e37ec88cac57c9f70f285c9400b4c354258/qnx-desktop-shell/meson.build
+@@ -0,0 +1,31 @@
++if get_option('shell-qnx-desktop')
++	config_h.set_quoted('WESTON_SHELL_CLIENT', get_option('desktop-shell-client-default'))
++
++	srcs_qnx_shell_desktop = [
++		'qnx-shell.c',
++		'input-panel.c',
++                weston_desktop_shell_server_protocol_h,
++                weston_desktop_shell_protocol_c,
++		qnx_weston_desktop_shell_server_protocol_h,
++		qnx_weston_desktop_shell_protocol_c,
++		input_method_unstable_v1_server_protocol_h,
++		input_method_unstable_v1_protocol_c,
++	]
++	deps_shell_qnx_desktop = [
++		dep_libm,
++		dep_libexec_weston,
++		dep_libshared,
++		dep_libweston_public,
++	]
++	plugin_shell_qnx_desktop = shared_library(
++		'qnx-desktop-shell',
++		srcs_qnx_shell_desktop,
++		include_directories: common_inc,
++		dependencies: deps_shell_qnx_desktop,
++		name_prefix: '',
++		install: true,
++		install_dir: dir_module_weston,
++		install_rpath: '$ORIGIN'
++	)
++	env_modmap += 'qnx-desktop-shell.so=@0@;'.format(plugin_shell_qnx_desktop.full_path())
++endif
+

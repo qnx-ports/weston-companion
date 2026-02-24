@@ -1,0 +1,114 @@
+From 71dde7e5c3a4e99491f8d5dfa4f6adc58f05678f Mon Sep 17 00:00:00 2001
+From: Felix Xing <fxing@qnx.com>
+Date: Tue, 29 Jul 2025 11:27:20 -0400
+Subject: [PATCH] move panel to the top
+
+diff --git a/libweston/desktop/libweston-desktop.c b/libweston/desktop/libweston-desktop.c
+index c1d82e6..229304c 100644
+--- a/libweston/desktop/libweston-desktop.c
++++ b/libweston/desktop/libweston-desktop.c
+@@ -25,6 +25,7 @@
+ 
+ #include <string.h>
+ 
++#include <threads.h>
+ #include <wayland-server.h>
+ #include <assert.h>
+ 
+@@ -150,11 +151,92 @@ weston_desktop_api_surface_removed(struct weston_desktop *desktop,
+ 	desktop->api.surface_removed(surface, desktop->user_data);
+ }
+ 
++struct shell_surface {
++	struct wl_signal destroy_signal;
++
++	struct weston_desktop_surface *desktop_surface;
++	struct weston_view *view;
++	struct weston_surface *wsurface_anim_fade;
++	struct weston_view *wview_anim_fade;
++	int32_t last_width, last_height;
++
++	struct desktop_shell *shell;
++
++	struct wl_list children_list;
++	struct wl_list children_link;
++
++	struct weston_coord_global saved_pos;
++	bool saved_position_valid;
++	bool saved_rotation_valid;
++	int unresponsive, grabbed;
++	uint32_t resize_edges;
++	uint32_t orientation;
++
++	struct {
++		struct weston_transform transform;
++		struct weston_matrix rotation;
++	} rotation;
++
++	struct {
++		struct weston_curtain *black_view;
++	} fullscreen;
++
++	struct weston_output *fullscreen_output;
++	struct weston_output *output;
++	struct wl_listener output_destroy_listener;
++
++	struct surface_state {
++		bool fullscreen;
++		bool maximized;
++		bool lowered;
++	} state;
++
++	struct {
++		bool is_set;
++		struct weston_coord_global pos;
++	} xwayland;
++
++	int focus_count;
++
++	bool destroying;
++	struct wl_list link;	/** desktop_shell::shsurf_list */
++};
++
+ void
+ weston_desktop_api_committed(struct weston_desktop *desktop,
+ 			     struct weston_desktop_surface *surface,
+ 			     struct weston_coord_surface buf_offset)
+ {
++	const char* title = weston_desktop_surface_get_title(surface);
++	if(title && strcmp(title, "xfce4-panel") == 0)
++	{
++		static thread_local int32_t panel_height = INT32_MAX;
++		static thread_local int32_t panel_width = INT32_MIN;
++		struct shell_surface *shsurf = weston_desktop_surface_get_user_data(surface);
++		struct weston_view *view = shsurf->view;
++		struct weston_geometry geom = weston_desktop_surface_get_geometry(surface);
++		struct weston_coord_global pos = {.c = {0, 0}};
++
++		if(geom.height < panel_height)
++		{
++			panel_height = geom.height;
++		}
++
++		if(geom.width > panel_width)
++		{
++			panel_width = geom.width;
++		}
++
++		
++		if(geom.height <= panel_height) // pannel
++		{
++			weston_view_set_position(view, pos);
++		}
++		else if (geom.width < panel_width) // taskbar
++		{
++		}
++	}
++
+ 	if (desktop->api.committed != NULL)
+ 		desktop->api.committed(surface, buf_offset, desktop->user_data);
+ }
+-- 
+GitLab
+
+

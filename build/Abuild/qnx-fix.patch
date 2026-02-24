@@ -1,0 +1,368 @@
+diff --git a/clients/meson.build b/clients/meson.build
+index 44a84b9d..190623e2 100644
+--- a/clients/meson.build
++++ b/clients/meson.build
+@@ -27,7 +27,7 @@ deps_toytoolkit = [
+ 	dep_matrix_c,
+ 	dep_xkbcommon,
+ 	dependency('wayland-cursor'),
+-	cc.find_library('util'),
++	cc.find_library('util', required: false),
+ ]
+ lib_toytoolkit = static_library(
+ 	'toytoolkit',
+@@ -77,7 +77,7 @@ simple_clients = [
+ 			dep_libshared,
+ 			dep_pixman,
+ 			dep_libdrm,
+-			dependency('libudev', version: '>= 136'),
++			dependency('libudev', version: '>= 136', required: false),
+ 			# gbm_bo_get_fd_for_plane() from 21.1.0
+ 			dependency('gbm', version: '>= 21.1.1',
+ 				required: simple_build_all or simple_clients_enabled.contains('dmabuf-feedback'),
+@@ -146,7 +146,8 @@ simple_clients = [
+ 			dep_matrix_c,
+ 			dep_wayland_client,
+ 		],
+-		'deps': [ 'egl', 'wayland-egl', 'glesv2', 'wayland-cursor' ],
++		'deps': [ 'wayland-egl', 'wayland-cursor' ],
++                'cc_deps': [ 'EGL', 'GLESv2' ],
+ 		'options': [ 'renderer-gl' ]
+ 	},
+ 	# weston-simple-im is handled specially separately due to install_dir and odd window.h usage
+@@ -184,6 +185,14 @@ foreach t : simple_clients
+ 			t_deps += dep
+ 		endforeach
+ 
++                foreach depname : t.get('cc_deps', [])
++                        dep = cc.find_library(depname, required: false)
++                        if not dep.found()
++                                error('@0@ requires cc library @1@ which was not found. If you rather not build this, drop "@2@" from simple-clients option.'.format(t_name, depname, t.get('name')))
++                        endif
++                        t_deps += dep
++                endforeach
++
+ 		foreach optname : t.get('options', [])
+ 			if not get_option(optname)
+ 				error('@0@ requires option @1@ which is not enabled. If you rather not build this, drop "@2@" from simple-clients option.'.format(t_name, optname, t.get('name')))
+@@ -327,7 +336,8 @@ demo_clients = [
+ 	{ 'basename': 'stacking' },
+ 	{
+ 		'basename': 'subsurfaces',
+-		'deps': [ 'egl', 'glesv2', 'wayland-egl' ]
++                'deps': ['wayland-egl'],
++		'cc_deps': [ 'EGL', 'GLESv2' ]
+ 	},
+ 	{
+ 		'basename': 'tablet',
+@@ -352,6 +362,14 @@ if get_option('demo-clients')
+ 			t_deps += dep
+ 		endforeach
+ 
++                foreach depname : t.get('cc_deps', [])
++                        dep = cc.find_library(depname, required: false)
++                         if not dep.found()
++                                error('@0@ requires c library \'@1@\' which was not found. If you rather not build this, set \'-Ddemo-clients=false\'.'.format(t_name, depname))
++                        endif
++                        t_deps += dep
++                endforeach
++
+ 		executable(
+ 			t_name, t_srcs,
+ 			include_directories: common_inc,
+diff --git a/include/libweston/meson.build b/include/libweston/meson.build
+index fc1070c5..f81a3746 100644
+--- a/include/libweston/meson.build
++++ b/include/libweston/meson.build
+@@ -20,6 +20,7 @@ backend_rdp_h =      files('backend-rdp.h')
+ backend_vnc_h =      files('backend-vnc.h')
+ backend_wayland_h =  files('backend-wayland.h')
+ backend_x11_h =      files('backend-x11.h')
++backend_qnx_screen_h =   files('backend-qnx-screen.h')
+ 
+ xwayland_api_h = files('xwayland-api.h')
+ 
+diff --git a/libweston/backend-qnx-screen/meson.build b/libweston/backend-qnx-screen/meson.build
+new file mode 100644
+index 00000000..fca9845a
+--- /dev/null
++++ b/libweston/backend-qnx-screen/meson.build
+@@ -0,0 +1,54 @@
++
++if not get_option('backend-qnx-screen')
++	subdir_done()
++endif
++
++config_h.set('BUILD_QNX_SCREEN_COMPOSITOR', '1')
++
++srcs_screen = [
++	'qnx-screen.c',
++        'qnx-screen-event-monitor.c',
++        'qnx-screen-event-monitor.h',
++        presentation_time_protocol_c,
++        presentation_time_server_protocol_h,
++]
++
++#dep_screen_xcb = dependency('xcb', version: '>= 1.8', required: false)
++#if not dep_x11_xcb.found()
++#	error('screen-backend requires xcb >= 1.8 which was not found. Or, you can use \'-Dbackend-screen=false\'.')
++#endif
++
++deps_screen = [
++        dependency('wayland-client'),
++	dep_egl, # optional
++	dep_libweston_private,
++	dep_lib_cairo_shared,
++	dep_pixman,
++]
++
++foreach name : [ 'screen' ]
++	d = cc.find_library(name, required: false)
++	if not d.found()
++		error('qnx-screen-backend requires @0@ which was not found. Or, you can use \'-Dbackend-qnx-screen=false\'.'.format(name))
++	endif
++	deps_screen += d
++endforeach
++
++#dep_xcb_xkb = dependency('xcb-xkb', version: '>= 1.9', required: false)
++#if dep_xcb_xkb.found()
++#	deps_x11 += dep_xcb_xkb
++#	config_h.set('HAVE_XCB_XKB', '1')
++#endif
++
++plugin_screen = shared_library(
++	'qnx-screen-backend',
++	srcs_screen,
++	include_directories: common_inc,
++	dependencies: deps_screen,
++	name_prefix: '',
++	install: true,
++	install_dir: dir_module_libweston
++)
++env_modmap += 'qnx-screen-backend.so=@0@;'.format(plugin_screen.full_path())
++
++install_headers(backend_qnx_screen_h, subdir: dir_include_libweston_install)
+diff --git a/libweston/meson.build b/libweston/meson.build
+index d1f126f2..d281cfb3 100644
+--- a/libweston/meson.build
++++ b/libweston/meson.build
+@@ -2,7 +2,6 @@ deps_libweston = [
+ 	dep_wayland_server,
+ 	dep_pixman,
+ 	dep_libm,
+-	dep_libdl,
+ 	dep_libdrm,
+ 	dep_xkbcommon,
+ 	dep_matrix_c,
+@@ -182,25 +181,25 @@ if get_option('backend-drm')
+ 	dep_session_helper = declare_dependency(link_with: lib_session_helper)
+ endif
+ 
+-lib_libinput_backend = static_library(
+-	'libinput-backend',
+-	[
+-		'libinput-device.c',
+-		'libinput-seat.c',
+-		tablet_unstable_v2_server_protocol_h
+-	],
+-	dependencies: [
+-		dep_libweston_private,
+-		dep_libinput,
+-		dependency('libudev', version: '>= 136')
+-	],
+-	include_directories: common_inc,
+-	install: false
+-)
+-dep_libinput_backend = declare_dependency(
+-	link_with: lib_libinput_backend,
+-	include_directories: include_directories('.')
+-)
++#lib_libinput_backend = static_library(
++#	'libinput-backend',
++#	[
++#		'libinput-device.c',
++#		'libinput-seat.c',
++#		tablet_unstable_v2_server_protocol_h
++#	],
++#	dependencies: [
++#		dep_libweston_private,
++#		dep_libinput,
++#		dependency('libudev', version: '>= 136')
++#	],
++#	include_directories: common_inc,
++#	install: false
++#)
++#dep_libinput_backend = declare_dependency(
++#	link_with: lib_libinput_backend,
++#	include_directories: include_directories('.')
++#)
+ 
+ dep_vertex_clipping = declare_dependency(
+ 	sources: 'vertex-clipping.c',
+@@ -233,3 +232,4 @@ subdir('backend-rdp')
+ subdir('backend-vnc')
+ subdir('backend-wayland')
+ subdir('backend-x11')
++subdir('backend-qnx-screen')
+diff --git a/libweston/renderer-gl/egl-glue.c b/libweston/renderer-gl/egl-glue.c
+index c40cef54..ccbc268e 100644
+--- a/libweston/renderer-gl/egl-glue.c
++++ b/libweston/renderer-gl/egl-glue.c
+@@ -501,7 +501,7 @@ gl_renderer_setup_egl_display(struct gl_renderer *gr,
+ 							   NULL);
+ 
+ #if defined(__QNX__)
+-	else if (gr->platform == 0) {
++	else if (gr->platform == EGL_PLATFORM_SCREEN_QNX) {
+ 		// On 64-bit QNX systems, the display type for the default platform (32-bit
+ 		// int) is not compatible with the display type for non-default platforms
+ 		// (void *).  As a consequence, falling back to eglGetDisplay just because
+@@ -552,12 +552,13 @@ platform_to_extension(EGLenum platform)
+ 		return "x11";
+ 	case EGL_PLATFORM_SURFACELESS_MESA:
+ 		return "surfaceless";
++	#if defined(__QNX__)
++	case EGL_PLATFORM_SCREEN_QNX:
++		return "none";
++	#endif
+ 	default:
+ 		assert(0 && "bad EGL platform enum");
+ 	}
+-#if defined(__QNX__)
+-	return "none";
+-#endif
+ }
+ 
+ /** Checks for EGL client extensions (i.e. independent of EGL display),
+@@ -586,7 +587,7 @@ gl_renderer_setup_egl_client_extensions(struct gl_renderer *gr)
+ 	gl_renderer_log_extensions(gr, "EGL client extensions", extensions);
+ 
+ #if defined(__QNX__)
+-	if (gr->platform == 0) {
++	if (gr->platform == EGL_PLATFORM_SCREEN_QNX) {
+ 		// Explicitly requesting use of default platform functions.
+ 		return 0;
+ 	}
+diff --git a/libweston/renderer-gl/meson.build b/libweston/renderer-gl/meson.build
+index c50e4f38..cfc22f4c 100644
+--- a/libweston/renderer-gl/meson.build
++++ b/libweston/renderer-gl/meson.build
+@@ -38,8 +38,8 @@ deps_renderer_gl = [
+ 	dep_vertex_clipping
+ ]
+ 
+-foreach name : [ 'egl', 'glesv2' ]
+-	d = dependency(name, required: false)
++foreach name : [ 'EGL', 'GLESv2' ]
++	d = cc.find_library(name, required: false)
+ 	if not d.found()
+ 		error('gl-renderer requires @0@ which was not found. Or, you can use \'-Drenderer-gl=false\'.'.format(name))
+ 	endif
+@@ -51,6 +51,7 @@ plugin_gl = shared_library(
+ 	srcs_renderer_gl,
+ 	include_directories: common_inc,
+ 	dependencies: deps_renderer_gl,
++        link_whole: lib_libshared,
+ 	name_prefix: '',
+ 	install: true,
+ 	install_dir: dir_module_libweston
+diff --git a/meson.build b/meson.build
+index fd14030c..69fd9b2c 100644
+--- a/meson.build
++++ b/meson.build
+@@ -127,7 +127,7 @@ config_h.set_quoted('LIBWESTON_MODULEDIR', dir_module_libweston)
+ 
+ backend_default = get_option('backend-default')
+ if backend_default == 'auto'
+-	foreach b : [ 'headless', 'x11', 'wayland', 'drm' ]
++	foreach b : [ 'qnx-screen' ,'headless', 'x11',  'wayland', 'drm' ]
+ 		if get_option('backend-' + b)
+ 			backend_default = b
+ 		endif
+@@ -147,11 +147,11 @@ endif
+ dep_wayland_server = dependency('wayland-server', version: '>= 1.22.0')
+ dep_wayland_client = dependency('wayland-client', version: '>= 1.22.0')
+ dep_pixman = dependency('pixman-1', version: '>= 0.25.2')
+-dep_libinput = dependency('libinput', version: '>= 1.2.0')
+-dep_libevdev = dependency('libevdev')
++dep_libinput = dependency('libinput', version: '>= 1.2.0', required: false)
++dep_libevdev = dependency('libevdev', required: false)
+ dep_libm = cc.find_library('m')
+-dep_libdl = cc.find_library('dl')
+-dep_libdrm = dependency('libdrm', version: '>= 2.4.108')
++dep_libdl = cc.find_library('dl', required: false)
++dep_libdrm = dependency('libdrm', required:false)
+ dep_libdrm_headers = dep_libdrm.partial_dependency(compile_args: true)
+ dep_threads = dependency('threads')
+ 
+@@ -171,7 +171,7 @@ deps_for_libweston_users = [
+ ]
+ 
+ if get_option('renderer-gl')
+-	dep_egl = dependency('egl', required: false)
++	dep_egl = cc.find_library('EGL')
+ 	if not dep_egl.found()
+ 		error('libweston + gl-renderer requires egl which was not found. Or, you can use \'-Drenderer-gl=false\'.')
+ 	endif
+diff --git a/meson_options.txt b/meson_options.txt
+index 0fbd42a9..cdca2dae 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -56,10 +56,16 @@ option(
+ 	value: true,
+ 	description: 'Weston backend: X11 (nested)'
+ )
++option(
++        'backend-qnx-screen',
++        type: 'boolean',
++        value: true,
++        description: 'Weston backend: QNX Screen'
++)
+ option(
+ 	'backend-default',
+ 	type: 'combo',
+-	choices: [ 'auto', 'drm', 'wayland', 'x11', 'headless', 'rdp' ],
++	choices: [ 'auto','qnx-screen', 'drm', 'wayland', 'x11', 'headless', 'rdp' ],
+ 	value: 'drm',
+ 	description: 'Default backend when no parent display server detected'
+ )
+diff --git a/qnx/build/backends/qnx-screen/qnx-screen.c b/qnx/build/backends/qnx-screen/qnx-screen.c
+index c7e7b9c1..b795c822 100644
+--- a/qnx/build/backends/qnx-screen/qnx-screen.c
++++ b/qnx/build/backends/qnx-screen/qnx-screen.c
+@@ -1381,7 +1381,7 @@ qnx_screen_backend_create(struct weston_compositor *compositor,
+ 	case WESTON_RENDERER_AUTO:
+ 	case WESTON_RENDERER_GL: {
+ 		const struct gl_renderer_display_options options = {
+-			.egl_platform = 0,
++			.egl_platform = EGL_PLATFORM_SCREEN_QNX,
+ 			.egl_native_display = (void *)(intptr_t)(b->egl_display),
+ 			.egl_surface_type = EGL_WINDOW_BIT,
+ 			.formats = b->formats,
+diff --git a/shared/image-loader.c b/shared/image-loader.c
+index 3ddc69b3..c5131dcc 100644
+--- a/shared/image-loader.c
++++ b/shared/image-loader.c
+@@ -153,22 +153,6 @@ load_jpeg_image(struct jpeg_decompress_struct *cinfo,
+ 	return pixman_image;
+ }
+ 
+-#if defined(__QNX__)
+-// fixes: undefined reference to `jpeg_read_icc_profile'
+-// this symbol is not found in libjpeg.so.9 from qnx sdp,
+-// QNX TODO: update this when symbol becomes available
+-static bool
+-jpeg_read_icc_profile(j_decompress_ptr cinfo, 
+-                      JOCTET **icc_data_ptr,
+-                      unsigned int *icc_data_len)
+-{
+-    // For now, return false to indicate no ICC profile
+-    *icc_data_ptr = NULL;
+-    *icc_data_len = 0;
+-    return false;
+-}
+-#endif
+-
+ static int
+ load_jpeg_icc(struct jpeg_decompress_struct *cinfo,
+ 	      struct icc_profile_data **icc_profile_data)

@@ -1,0 +1,127 @@
+From 323c918bc3126e431a3d59d2eafe69c5a536a285 Mon Sep 17 00:00:00 2001
+From: Pierce McKinnon <pimckinnon@blackberry.com>
+Date: Thu, 16 Oct 2025 15:45:33 -0400
+Subject: [PATCH] Blacklist xfce4-panel title + appid Constrain to belowe xfce
+ panel bar
+
+---
+ desktop-shell/qnx-shell.c | 53 ++++++++++++++++++++++++++++++++++++++-
+ desktop-shell/qnx-shell.h |  1 +
+ 2 files changed, 53 insertions(+), 1 deletion(-)
+
+diff --git a/desktop-shell/qnx-shell.c b/desktop-shell/qnx-shell.c
+index 5b95fad0..0387d694 100644
+--- a/qnx-desktop-shell/qnx-shell.c
++++ b/qnx-desktop-shell/qnx-shell.c
+@@ -218,9 +218,12 @@ struct tablet_tool_listener {
+ 	struct wl_listener removed_listener;
+ };
+ 
+-#define number_blacklist_applications 0
++#define external_panel_name "xfce4-panel"
++
++#define number_blacklist_applications 1
+ static const char* blacklist_applications[number_blacklist_applications] = 
+ {
++	external_panel_name
+ };
+ 
+ static struct desktop_shell *
+@@ -448,6 +451,13 @@ get_output_work_area(struct desktop_shell *shell,
+ 		constrain_output_area_from_taskbar(shell->taskbar_position, sh_output->taskbar_surface, area);
+ 	}
+ 
++	if(sh_output->external_panel)
++	{
++		double external_panel_height = sh_output->external_panel->height;
++		area->y += external_panel_height;
++		area->height -= external_panel_height;
++	}
++
+ 	if (!sh_output->panel_view ||
+ 	    !weston_view_is_mapped(sh_output->panel_view)) {
+ 		return;
+@@ -2348,6 +2358,17 @@ set_position_from_xwayland(struct shell_surface *shsurf)
+ #endif
+ }
+ 
++static void 
++external_panel_map(struct shell_surface *shsurf, uint32_t *surface_id)
++{
++	const char* title = weston_desktop_surface_get_title(shsurf->desktop_surface);
++	if(title && (strcmp(title, external_panel_name)!=0))
++	{
++		shsurf->surface_id = ++(*surface_id);
++		qnx_weston_desktop_shell_extension_send_surface_mapped(shsurf->shell->child.qnx_desktop_shell, shsurf->surface_id, title);
++	}
++}
++
+ static void
+ map(struct desktop_shell *shell, struct shell_surface *shsurf)
+ {
+@@ -2405,6 +2426,12 @@ map(struct desktop_shell *shell, struct shell_surface *shsurf)
+ 		const char* app_id = weston_desktop_surface_get_app_id(shsurf->desktop_surface);
+ 		const char* process_name = app_id ? app_id : "default";
+ 
++		if(strcmp(external_panel_name, app_id) == 0)	
++		{
++			external_panel_map(shsurf, &surface_id);
++			return;
++		}
++
+ 		for (uint32_t ii=0; ii < number_blacklist_applications; ii++)
+ 		{
+ 			if(strstr(process_name, blacklist_applications[ii]))
+@@ -2426,6 +2453,24 @@ map(struct desktop_shell *shell, struct shell_surface *shsurf)
+ 
+ }
+ 
++static void 
++external_panel_commited(struct shell_surface *surface)
++{
++	struct shell_output *sh_output = find_shell_output_from_weston_output(surface->shell, surface->output);
++	if(!sh_output->external_panel)
++	{
++		struct weston_surface *weston_surface =
++			weston_desktop_surface_get_surface(surface->desktop_surface);
++
++		if (!weston_surface_has_content(weston_surface))
++		{
++			return;
++		}
++		
++		sh_output->external_panel = weston_surface;
++	}
++}
++
+ static void
+ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
+ 			  struct weston_coord_surface buf_offset, void *data)
+@@ -2460,6 +2505,12 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
+ 
+ 	if (!weston_surface_is_mapped(surface)) {
+ 		map(shell, shsurf);
++
++		const char* title = weston_desktop_surface_get_title(desktop_surface);
++		if(title && strcmp(title, "xfce4-panel") == 0)
++		{
++			external_panel_commited(shsurf);
++		}
+ 		/* as we need to survive the weston_surface destruction we'll
+ 		 * need to take another reference */
+ 		if (shsurf->shell->win_close_animation_type == ANIMATION_FADE) {
+diff --git a/desktop-shell/qnx-shell.h b/desktop-shell/qnx-shell.h
+index e1594c70..1a4081d1 100644
+--- a/qnx-desktop-shell/qnx-shell.h
++++ b/qnx-desktop-shell/qnx-shell.h
+@@ -70,6 +70,7 @@ struct shell_output {
+ 
+ 	struct weston_surface *panel_surface;
+ 	struct weston_surface *taskbar_surface;
++	struct weston_surface *external_panel;
+ 	struct weston_view *panel_view;
+ 	struct weston_view *taskbar_view;
+ 	struct wl_listener panel_surface_listener;
+-- 
+2.51.1
+
