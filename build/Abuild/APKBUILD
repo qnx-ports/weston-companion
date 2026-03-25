@@ -3,7 +3,7 @@
 # Maintainer: Aaron Bassett <abassett@qnx.com>
 pkgname=weston
 pkgver=14.0.2
-pkgrel=${pkgrel:-0}
+pkgrel=5
 _commit="62583e37ec88cac57c9f70f285c9400b4c354258"
 _libname=lib$pkgname
 _libdir=$_libname-${pkgver%%.*}
@@ -166,7 +166,6 @@ _sub() {
 }
 
 
-options="$options ${DISABLE_CHECK:+!check}"
 sha512sums="
 b20a7551d254295ace8a0e3c940677c476d1b8a41dda77823446d6bd766bf2143963f0a595949f8aa71f17a147f5bf4779e0b41310b77dcdd77c2733377de549  62583e37ec88cac57c9f70f285c9400b4c354258.tar.gz
 f8da44d844cee2b21610f7bb83222910ecb7fad5620d461f88b264d52b0308ffe78b930c414c58766ce0fa440c4edae8156a7848237b50e6e4bbf0ddd0ed5767  input.h
